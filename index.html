@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>GeoTIFF viewer</title>
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.2.0/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.2.0/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/geotiff@0.4.1/dist/geotiff.browserify.min.js"></script>
+</head>
+
+<body>
+  <div id="map" style="position:absolute;top:0;left:0;right:0;bottom:0;"></div>
+  <div style="position:absolute;bottom:0;left:0;width:auto;height:auto;z-index:10000;background:black;color:white;font-size:9pt;padding:2px;">
+    Usage: drag and drop your GeoTIFF file onto map
+  </div>
+
+  <script>
+    var map = L.map("map", {
+      zoom: 5,
+      center: [36, 138]
+    });
+
+    L.control.layers({
+      "OpenStreetMap": L.tileLayer("http://{s}.tile.osm.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; <a href='http://osm.org/copyright'>OpenStreetMap</a> contributors"
+      }).addTo(map),
+      "地理院地図(標準)": L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png", {
+        attribution: '<a href="http://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>'
+      }),
+      "地理院地図(淡色)": L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
+        attribution: '<a href="http://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>'
+      }),
+      "地理院地図(写真)": L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg", {
+        attribution: '<a href="http://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>'
+      })
+    }).addTo(map);
+
+    map.zoomControl.setPosition("bottomright");
+
+    document.addEventListener("dragover", function(event) {
+      event.stopPropagation();
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy"
+    });
+
+    document.addEventListener("drop", function(event) {
+      event.stopPropagation();
+      event.preventDefault();
+
+      var reader = new FileReader();
+      reader.onload = function() {
+        var image = GeoTIFF.parse(reader.result).getImage();
+        image.readRGB(function(raster) {
+          var meta = image.getFileDirectory();
+          console.log(meta);
+          console.log(image.getGeoKeys());
+          var width = image.getWidth();
+          var height = image.getHeight();
+
+          var west = meta.ModelTiepoint[3];
+          var east = west + meta.ModelPixelScale[0] * width;
+          var south = meta.ModelTiepoint[4];
+          var north = south - meta.ModelPixelScale[1] * height;
+
+          if (west < -180 || east > 180 || south < -90 || north > 90) {
+            alert("Failed to render, see console.log for more details");
+            return;
+          }
+
+          var bounds = L.latLngBounds([
+            [south, west],
+            [north, east]
+          ]);
+
+          var canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          var context = canvas.getContext("2d");
+          var imageData = context.createImageData(width, height);
+          var data = imageData.data;
+          for (var i = width * height - 1; i >= 0; i--) {
+            data[i * 4 + 0] = raster[i * 3 + 0];
+            data[i * 4 + 1] = raster[i * 3 + 1];
+            data[i * 4 + 2] = raster[i * 3 + 2];
+            data[i * 4 + 3] = 0xff;
+          }
+          context.putImageData(imageData, 0, 0);
+
+          L.imageOverlay(canvas.toDataURL(), bounds, {
+            opacity: 0.75
+          }).addTo(map);
+          map.fitBounds(bounds);
+        });
+      };
+      reader.readAsArrayBuffer(event.dataTransfer.files[0]);
+    });
+  </script>
+</body>
+
+</html>
